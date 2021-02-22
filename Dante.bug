@@ -1,0 +1,159 @@
+model{
+
+  #############################################
+  ## AGGRETATION MODEL
+
+  #############################################
+  ## national forecast model
+  for(t in (nobs+1):NT){
+    futurey_nat[t] <- t(census_weights[,NR_region+1]) %*% futurey_state[,t]
+  }
+  for(t in 1:nobs){
+    futurey_nat[t] <- yobs_nat[t]
+  }
+
+  #############################################
+  ## region forecast model
+  for(r in 1:NR_region){
+    for(t in (nobs+1):NT){
+      futurey_hhs[r,t] <- t(census_weights[,r]) %*% futurey_state[,t]
+    }
+  }
+  for(r in 1:NR_region){
+    for(t in 1:nobs){
+      futurey_hhs[r,t] <- yobs_region[t,r]
+    }
+  }
+  
+  #############################################
+  ## draw from state-level posterior predictive distribution
+  for(r in 1:NR_state){
+    for(t in (nobs+1):NT){
+      futurey_state[r,t] ~ dbeta(lambda[r] * pi_all[r,fcstseason,t], 
+                                 lambda[r] * (1 - pi_all[r,fcstseason,t]))
+    }
+  }
+  for(r in 1:NR_state){
+    for(t in 1:nobs){
+      futurey_state[r,t] <- yobs_state[r,fcstseason,t]
+    }
+  }
+
+
+  ##############################################
+  ## DANTE'S DATA MODEL
+
+  ##############################################
+  ## state data model
+  for(r in 1:NR_state){
+    for(s in 1:NS){
+      for(t in 1:NT){
+
+        ## data model
+        yobs_state[r,s,t] ~ dbeta(lambda[r] * pi_all[r,s,t], 
+                               lambda[r] * (1 - pi_all[r,s,t]))
+
+        ## data mean
+        pi_all[r,s,t] <- ilogit(mu_all[t] + mu_season[s,NT+1-t] + mu_state[r,t] + mu_interaction[r,s,NT+1-t])
+        
+      }
+    }
+  }  
+  
+  for(r in 1:NR_state){
+    lambda[r] ~ dt(0, lambda_prec, 3) T(0,)
+  }
+  lambda_prec ~ dgamma(5, 5)
+
+
+  ###########################################
+  ## DANTE'S PROCESS MODEL
+
+  ###########################################
+  ## mu_all time series
+  mu_all[1] ~ dnorm(0, pow(var_all_init, -1))
+  
+  for(t in 2:NT){
+    mu_all[t] ~ dnorm(mu_all[t-1], pow(var_all,-1))
+  }
+  
+  var_all_init  ~ dnorm(0, prec_all_init) T(0,)
+  var_all       ~ dnorm(0, prec_all) T(0,)
+  prec_all_init ~ dgamma(5, 5)
+  prec_all      ~ dgamma(5, 5)
+
+  
+  ###########################################
+  ## mu_season time series
+
+  for(s in 1:NS){
+    mu_season[s,1] ~ dnorm(0, pow(var_season_init, -1))
+  }
+  
+  for(s in 1:NS){
+    for(t in 2:NT){
+      mu_season[s,t] ~ dnorm(mu_season[s,t-1], pow(var_season, -1))
+    }
+  }
+
+  var_season_init   ~ dt(0, prec_season, 3) T(0,)
+  var_season        ~ dt(0, prec_season, 3) T(0, var_season_init)
+  prec_season       ~ dgamma(5, 5)
+
+
+  ###########################################
+  ## mu_state time series
+  
+  for(r in 1:NR_state){
+    mu_state[r,1] ~ dnorm(0, pow(var_state_init, -1))
+  }
+  
+  for(r in 1:NR_state){
+    for(t in 2:NT){
+      mu_state[r,t] ~ dnorm(mu_state[r,t-1], pow(var_state[r], -1))
+    }
+  }
+  for(r in 1:NR_state){
+    var_state[r] ~ dt(0, prec_state, 3) T(0,)
+  }
+  prec_state ~ dgamma(5, 5)
+
+  var_state_init  ~ dnorm(0, prec_state_init) T(0,) 
+  prec_state_init ~ dgamma(5, 5)
+
+
+  ###########################################
+  ## mu_interaction time series
+  
+  ## mu_interaction initialization
+  for(r in 1:NR_state){
+    for(s in 1:NS){
+      mu_interaction[r,s,1] ~ dnorm(mu_interaction_mean[r], pow(var_interaction[r,1], -1))
+    }
+    mu_interaction_mean[r] ~ dnorm(0,pow(var_interaction_mean,-1))
+  }
+  var_interaction_mean ~ dnorm(0,pow(.05,-1)) T(0,)
+
+  for(r in 1:NR_state){
+    for(s in 1:NS){
+      for(t in 2:NT){
+        mu_interaction[r,s,t]  ~  dnorm(alpha_interaction[r] * mu_interaction[r,s,t-1], pow(var_interaction[r,t], -1)) 
+      }
+    }
+  }
+  for(r in 1:NR_state){
+    alpha_interaction[r] ~ dbeta(alpha_interaction_a, alpha_interaction_b)
+  }
+  alpha_interaction_a ~ dgamma(5, 5)
+  alpha_interaction_b ~ dgamma(5, 5)
+  
+  
+  ## prior over interaction variances
+  for(r in 1:NR_state){
+    for(t in 1:NT){
+      var_interaction[r,t]  ~ dt(0, prec_interaction, 3) T(0,)
+    }
+  }
+  prec_interaction ~ dgamma(5, 5)
+
+}
